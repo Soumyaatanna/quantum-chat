@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import axios from 'axios';
 import QKDModal from '../components/QKDModal';
+import Sidebar, { Conversation } from '../components/Sidebar';
+import ChatHeader from '../components/ChatHeader';
+import MessageBubble from '../components/MessageBubble';
 
 const apiBase = import.meta.env.VITE_API_BASE as string;
 const wsBase = import.meta.env.VITE_WS_BASE as string || apiBase?.replace('http', 'ws');
@@ -37,6 +40,7 @@ export default function ChatPage() {
   const [keyHex, setKeyHex] = useState('');
   const [qber, setQber] = useState(0);
   const [eveDetected, setEveDetected] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const socket = useMemo(()=> io(wsBase, { transports: ['websocket'] }), []);
   const keyRef = useRef<CryptoKey | null>(null);
@@ -93,36 +97,36 @@ export default function ChatPage() {
     importKeyFromHex(hex).then(k => { keyRef.current = k; loadHistory(); });
   }
 
+  function startNewChat() {
+    const id = prompt('Enter peer userId');
+    if (!id) return;
+    setPeerId(id);
+    setConversations(prev => {
+      if (prev.find(p => p.peerId === id)) return prev;
+      return [...prev, { peerId: id, title: `User ${id}`, secure: !!keyHex }];
+    });
+  }
+
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-3 bg-white shadow flex items-center gap-2">
-        <div className="font-semibold">Quantum Secure Chat</div>
-        <div className="ml-auto flex items-center gap-3">
+    <div className="h-screen flex">
+      <Sidebar conversations={conversations} onSelect={(c)=>{ setPeerId(c.peerId); loadHistory(); }} onNew={startNewChat} />
+      <div className="flex-1 flex flex-col">
+        <ChatHeader title={peerId ? `User ${peerId}`:'Select a chat'} secure={!!keyHex} qber={qber} eveDetected={eveDetected} />
+        <div className="px-3 py-2 bg-gray-50 flex items-center gap-3 border-b">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={eve} onChange={e=>setEve(e.target.checked)} />Eve attack</label>
-          {keyHex && <div className="text-sm">QBER: {(qber*100).toFixed(1)}% {eveDetected && <span className="text-red-600">(Eve detected)</span>}</div>}
+          <button onClick={()=> setShowQKD(true)} className="px-3 py-1.5 bg-green-600 text-white rounded">Start QKD</button>
+          <button onClick={loadHistory} className="px-3 py-1.5 border rounded">Load History</button>
+        </div>
+        <div className="flex-1 overflow-auto p-4 space-y-2 bg-gray-100">
+          {messages.map((m, i)=> (
+            <MessageBubble key={i} mine={m.sender===userId} text={m.plaintext ?? '[encrypted]'} time={new Date(m.createdAt||Date.now()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} />
+          ))}
+        </div>
+        <div className="p-3 bg-white flex gap-2 border-t">
+          <input value={text} onChange={e=>setText(e.target.value)} placeholder="Type a quantum-secured message..." className="border flex-1 p-2 rounded" />
+          <button onClick={send} className="px-3 py-2 bg-indigo-600 text-white rounded">Send</button>
         </div>
       </div>
-
-      <div className="p-3 flex gap-2 bg-gray-100">
-        <input value={peerId} onChange={e=>setPeerId(e.target.value)} placeholder="Peer userId" className="border p-2 rounded w-64" />
-        <button onClick={()=> setShowQKD(true)} className="px-3 py-2 bg-green-600 text-white rounded">Start QKD</button>
-        <button onClick={loadHistory} className="px-3 py-2 border rounded">Load History</button>
-      </div>
-
-      <div className="flex-1 overflow-auto p-3 space-y-2">
-        {messages.map((m, i)=> (
-          <div key={i} className={`max-w-lg p-2 rounded ${m.sender===userId ? 'bg-blue-100 ml-auto':'bg-white'}`}>
-            <div className="text-xs text-gray-500">{m.sender===userId? 'You':'Peer'}</div>
-            <div>{m.plaintext ?? '[encrypted]'}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="p-3 bg-white flex gap-2">
-        <input value={text} onChange={e=>setText(e.target.value)} placeholder="Type a message" className="border flex-1 p-2 rounded" />
-        <button onClick={send} className="px-3 py-2 bg-blue-600 text-white rounded">Send</button>
-      </div>
-
       <QKDModal open={showQKD} onClose={()=>setShowQKD(false)} setSessionKey={onKey} eveEnabled={eve} />
     </div>
   );
