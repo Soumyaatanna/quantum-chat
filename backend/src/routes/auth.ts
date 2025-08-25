@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import User from '../models/User';
 
 const router = Router();
 
@@ -17,8 +17,10 @@ router.post('/signup', async (req, res) => {
     const user = await User.create({ username, passwordHash });
     const token = jwt.sign({ sub: user._id, username }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user._id, username: user.username } });
-  } catch (e) {
-    res.status(500).json({ error: 'signup_failed' });
+  } catch (e: any) {
+    console.error('[auth.signup] error', e?.message, e);
+    if (e?.code === 11000) return res.status(409).json({ error: 'username taken' });
+    res.status(500).json({ error: 'signup_failed', detail: e?.message });
   }
 });
 
@@ -31,8 +33,9 @@ router.post('/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
     const token = jwt.sign({ sub: user._id, username }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user._id, username: user.username } });
-  } catch (e) {
-    res.status(500).json({ error: 'login_failed' });
+  } catch (e: any) {
+    console.error('[auth.login] error', e?.message, e);
+    res.status(500).json({ error: 'login_failed', detail: e?.message });
   }
 });
 

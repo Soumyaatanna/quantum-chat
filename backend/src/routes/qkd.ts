@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { simulateBB84 } from '../qkd/bb84.js';
+import { simulateBB84 } from '../qkd/bb84';
 
 const router = Router();
 

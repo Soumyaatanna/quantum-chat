@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import Message from '../models/Message.js';
+import Message from '../models/Message';
 import jwt from 'jsonwebtoken';
 
 const router = Router();

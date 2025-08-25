@@ -1,3 +1,5 @@
+import React from 'react';
+
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-700 to-indigo-800 text-white">
