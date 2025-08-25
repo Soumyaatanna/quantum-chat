@@ -19,7 +19,10 @@ async function encryptAesGcm(key: CryptoKey, plaintext: string) {
   const enc = new TextEncoder();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(plaintext)));
-  return { iv: Buffer.from(iv).toString('hex'), ciphertext: Buffer.from(ct).toString('base64') };
+  return { 
+    iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''), 
+    ciphertext: btoa(String.fromCharCode(...ct))
+  };
 }
 
 async function decryptAesGcm(key: CryptoKey, ivHex: string, ciphertextB64: string) {
@@ -28,6 +31,11 @@ async function decryptAesGcm(key: CryptoKey, ivHex: string, ciphertextB64: strin
   const data = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0));
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
   return dec.decode(pt);
+}
+
+interface User {
+  _id: string;
+  username: string;
 }
 
 export default function ChatPage() {
@@ -40,6 +48,7 @@ export default function ChatPage() {
   const [qber, setQber] = useState(0);
   const [eveDetected, setEveDetected] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
 
   const socket = useMemo(() => {
@@ -53,36 +62,102 @@ export default function ChatPage() {
 
   const roomId = useMemo(() => peerId ? [userId, peerId].sort().join(':') : '', [peerId, userId]);
 
+  // Set up axios interceptor to include auth token
   useEffect(() => {
-    console.log('[ChatPage] Component mounted, userId:', userId);
+    api.interceptors.request.use((config) => {
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+  }, [token]);
+
+  useEffect(() => {
     socket.on('connect', () => console.log('[Socket] Connected'));
     socket.on('disconnect', () => console.log('[Socket] Disconnected'));
     socket.on('connect_error', (err) => console.error('[Socket] Connection error:', err));
-  }, [socket]);
-
-  useEffect(() => {
-    if (!roomId) return;
-    console.log('[ChatPage] Joining room:', roomId);
-    socket.emit('join', { roomId });
-  }, [roomId, socket]);
-
-  useEffect(() => {
+    
+    // Listen for room join confirmation
+    socket.on('joined', ({ roomId, userId: socketUserId }) => {
+      console.log('[Socket] Successfully joined room:', roomId, 'User:', socketUserId);
+    });
+    
+    // Listen for incoming messages
     socket.on('chat', async ({ message }) => {
-      console.log('[ChatPage] Received message:', message);
-      if (!keyRef.current) {
-        console.log('[ChatPage] No key available for decryption');
+      console.log('[ChatPage] Received message from socket:', message);
+      
+      // Only process messages from other users
+      if (message.sender === userId) {
+        console.log('[ChatPage] Ignoring own message from socket');
         return;
       }
+      
+      if (!keyRef.current) {
+        console.log('[ChatPage] No key available for decryption, storing encrypted message');
+        setMessages(prev => [...prev, { ...message, plaintext: '[encrypted - no key]' }]);
+        return;
+      }
+      
       try {
         const plaintext = await decryptAesGcm(keyRef.current, message.iv, message.ciphertext);
         console.log('[ChatPage] Decrypted message:', plaintext);
         setMessages(prev => [...prev, { ...message, plaintext }]);
       } catch (err) {
         console.error('[ChatPage] Failed to decrypt message:', err);
+        setMessages(prev => [...prev, { ...message, plaintext: '[decryption failed]' }]);
       }
     });
-    return () => { socket.off('chat'); };
-  }, [socket]);
+    
+    // Listen for message sent confirmation
+    socket.on('message_sent', ({ message }) => {
+      console.log('[ChatPage] Message sent confirmation received');
+    });
+    
+    // Listen for socket errors
+    socket.on('error', ({ message }) => {
+      console.error('[Socket] Error:', message);
+    });
+    
+    return () => { 
+      socket.off('chat'); 
+      socket.off('joined');
+      socket.off('message_sent');
+      socket.off('error');
+    };
+  }, [socket, userId]);
+
+  useEffect(() => {
+    if (!roomId) return;
+    console.log('[ChatPage] Joining room:', roomId);
+    socket.emit('join', { roomId, token });
+  }, [roomId, socket, token]);
+
+  // Load all users on component mount
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    try {
+      console.log('[ChatPage] Loading users...');
+      const res = await api.get('/api/auth/users');
+      console.log('[ChatPage] Users loaded:', res.data.length, 'users');
+      setUsers(res.data);
+      
+      // Convert users to conversations format
+      const userConversations = res.data
+        .filter((user: User) => user._id !== userId)
+        .map((user: User) => ({
+          peerId: user._id,
+          title: user.username,
+          secure: false
+        }));
+      
+      setConversations(userConversations);
+    } catch (err) {
+      console.error('[ChatPage] Failed to load users:', err);
+    }
+  }
 
   async function loadHistory() {
     if (!peerId) return;
@@ -122,14 +197,35 @@ export default function ChatPage() {
       console.log('[ChatPage] Sending message to:', peerId);
       const { iv, ciphertext } = await encryptAesGcm(keyRef.current, text);
       const payload = { receiver: peerId, iv, ciphertext };
+      
+      console.log('[ChatPage] Sending payload:', { 
+        receiver: payload.receiver, 
+        hasIv: !!payload.iv, 
+        hasCiphertext: !!payload.ciphertext 
+      });
+      
       const saved = await api.post(`/api/messages`, payload);
       console.log('[ChatPage] Message saved:', saved.data);
       
-      setMessages(prev => [...prev, { ...saved.data, plaintext: text }]);
+      // Add message to local state immediately
+      const newMessage = { 
+        ...saved.data, 
+        plaintext: text,
+        sender: userId,
+        receiver: peerId,
+        createdAt: new Date()
+      };
+      setMessages(prev => [...prev, newMessage]);
+      
+      // Emit to socket for real-time delivery to other users
+      console.log('[ChatPage] Emitting to socket, roomId:', roomId);
       socket.emit('chat', { roomId, message: saved.data });
+      
       setText('');
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ChatPage] Failed to send message:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to send message';
+      alert(`Failed to send message: ${errorMsg}`);
     }
   }
 
@@ -142,6 +238,13 @@ export default function ChatPage() {
       keyRef.current = k;
       console.log('[ChatPage] Key imported successfully');
       loadHistory();
+      
+      // Update conversation security status
+      if (peerId) {
+        setConversations(prev => prev.map(c => 
+          c.peerId === peerId ? { ...c, secure: true } : c
+        ));
+      }
     }).catch(err => {
       console.error('[ChatPage] Failed to import key:', err);
     });
@@ -160,13 +263,22 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex">
-      <Sidebar conversations={conversations} onSelect={(c) => { 
-        console.log('[ChatPage] Selecting conversation:', c.peerId);
-        setPeerId(c.peerId); 
-        loadHistory(); 
-      }} onNew={startNewChat} />
+      <Sidebar 
+        conversations={conversations} 
+        onSelect={(c) => { 
+          console.log('[ChatPage] Selecting conversation:', c.peerId);
+          setPeerId(c.peerId); 
+          loadHistory(); 
+        }} 
+        onNew={startNewChat} 
+      />
       <div className="flex-1 flex flex-col">
-        <ChatHeader title={peerId ? `User ${peerId}` : 'Select a chat'} secure={!!keyHex} qber={qber} eveDetected={eveDetected} />
+        <ChatHeader 
+          title={peerId ? users.find(u => u._id === peerId)?.username || `User ${peerId}` : 'Select a chat'} 
+          secure={!!keyHex} 
+          qber={qber} 
+          eveDetected={eveDetected} 
+        />
         <div className="px-3 py-2 bg-gray-50 flex items-center gap-3 border-b">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={eve} onChange={e => setEve(e.target.checked)} />
@@ -178,6 +290,14 @@ export default function ChatPage() {
           <button onClick={loadHistory} disabled={loading} className="px-3 py-1.5 border rounded disabled:opacity-50">
             {loading ? 'Loading...' : 'Load History'}
           </button>
+          <button onClick={loadUsers} className="px-3 py-1.5 border rounded">
+            Refresh Users
+          </button>
+          <div className="text-xs text-gray-600 border-l pl-3">
+            <div>Room: {roomId || 'None'}</div>
+            <div>Socket: {socket.connected ? '🟢' : '🔴'}</div>
+            <div>Users: {conversations.length}</div>
+          </div>
           {keyHex && (
             <div className="text-sm text-gray-600">
               Key: {keyHex.substring(0, 16)}... | QBER: {(qber * 100).toFixed(1)}%

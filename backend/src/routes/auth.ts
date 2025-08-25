@@ -7,6 +7,19 @@ const router = Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 
+function authMiddleware(req: any, res: any, next: any) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    const payload: any = jwt.verify(token, JWT_SECRET);
+    req.userId = payload.sub;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+}
+
 router.post('/signup', async (req, res) => {
   try {
     const { username, password } = req.body || {};
@@ -36,6 +49,16 @@ router.post('/login', async (req, res) => {
   } catch (e: any) {
     console.error('[auth.login] error', e?.message, e);
     res.status(500).json({ error: 'login_failed', detail: e?.message });
+  }
+});
+
+router.get('/users', authMiddleware, async (req, res) => {
+  try {
+    const users = await User.find({}, { username: 1, _id: 1 }).sort({ username: 1 });
+    res.json(users);
+  } catch (e: any) {
+    console.error('[auth.users] error', e?.message, e);
+    res.status(500).json({ error: 'failed_to_fetch_users', detail: e?.message });
   }
 });
 

@@ -17,6 +17,7 @@ app.use(cors({ origin: '*'}));
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/test', (_req, res) => res.json({ message: 'Backend is working!', timestamp: new Date().toISOString() }));
 app.use('/api/auth', authRouter);
 app.use('/api/qkd', qkdRouter);
 app.use('/api/messages', messageRouter);
