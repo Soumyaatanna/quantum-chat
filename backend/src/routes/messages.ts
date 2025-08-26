@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import Message from '../models/Message';
+import User from '../models/User';
 import jwt from 'jsonwebtoken';
 
 const router = Router();
@@ -34,13 +35,16 @@ router.get('/:peerId', authMiddleware, async (req: any, res) => {
         { sender: userId, receiver: peerId },
         { sender: peerId, receiver: userId },
       ],
-    }).sort({ createdAt: 1 });
+    })
+    .sort({ createdAt: 1 })
+    .populate('sender', 'username')
+    .populate('receiver', 'username');
     
     console.log('[messages.get] Found', messages.length, 'messages');
     res.json(messages);
   } catch (error: any) {
     console.error('[messages.get] error:', error);
-    res.status(500).json({ error: 'failed_to_fetch_messages', detail: error.message });
+    res.status(500).json({ error: 'failed_to_fetch_messages', detail: error?.message || String(error) });
   }
 });
 
@@ -59,17 +63,20 @@ router.post('/', authMiddleware, async (req: any, res) => {
     if (!receiver || !ciphertext || !iv) {
       console.log('[messages.post] Validation failed:', { receiver: !!receiver, ciphertext: !!ciphertext, iv: !!iv });
       return res.status(400).json({ 
-        error: 'receiver, ciphertext, and iv are required',
+        error: 'bad_request',
+        detail: 'receiver, ciphertext, and iv are required',
         received: { receiver: !!receiver, ciphertext: !!ciphertext, iv: !!iv }
       });
     }
     
-    // Validate that receiver exists
-    const User = require('../models/User').default;
+    // Validate that receiver exists and ids are well-formed
+    if (typeof receiver !== 'string') {
+      return res.status(400).json({ error: 'bad_request', detail: 'receiver must be a string user id' });
+    }
     const receiverUser = await User.findById(receiver);
     if (!receiverUser) {
       console.log('[messages.post] Receiver not found:', receiver);
-      return res.status(400).json({ error: 'receiver not found' });
+      return res.status(404).json({ error: 'receiver_not_found', detail: 'Receiver user does not exist' });
     }
     
     const message = await Message.create({ 
@@ -89,7 +96,9 @@ router.post('/', authMiddleware, async (req: any, res) => {
     res.json(message);
   } catch (error: any) {
     console.error('[messages.post] error:', error);
-    res.status(500).json({ error: 'failed_to_create_message', detail: error.message });
+    // Forward Mongoose validation/cast errors clearly
+    const status = error?.name === 'ValidationError' || error?.name === 'CastError' ? 400 : 500;
+    res.status(status).json({ error: 'failed_to_create_message', detail: error?.message || String(error) });
   }
 });
 

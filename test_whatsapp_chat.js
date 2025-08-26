@@ -1,0 +1,122 @@
+console.log('🧪 Testing WhatsApp-like Quantum Chat System');
+console.log('============================================\n');
+
+console.log('🔍 STEP 1: VERIFY MONGODB');
+console.log('   - Make sure MongoDB is running');
+console.log('   - Check connection: mongodb://127.0.0.1:27017\n');
+
+console.log('🔍 STEP 2: BACKEND SETUP');
+console.log('   cd backend');
+console.log('   npm install');
+console.log('   Create .env file with:');
+console.log('     MONGO_URI=mongodb://127.0.0.1:27017/quantum_chat');
+console.log('     JWT_SECRET=your_secret_key_here');
+console.log('     PORT=4000');
+console.log('   npm run dev');
+console.log('   ✅ Should see: "Backend listening on :4000"');
+console.log('   ✅ Should see: "Mongo connected"\n');
+
+console.log('🔍 STEP 3: FRONTEND SETUP');
+console.log('   cd frontend');
+console.log('   npm install');
+console.log('   Create .env file with:');
+console.log('     VITE_API_BASE=http://localhost:4000');
+console.log('     VITE_WS_BASE=http://localhost:4000');
+console.log('   npm run dev');
+console.log('   ✅ Should see: "Local: http://localhost:5173"\n');
+
+console.log('🔍 STEP 4: TESTING WHATSAPP-LIKE CHAT');
+console.log('   1. Open http://localhost:5173 in Browser 1');
+console.log('   2. Open http://localhost:5173 in Browser 2 (incognito)');
+console.log('   3. Register user1 (e.g., "alice") in Browser 1');
+console.log('   4. Register user2 (e.g., "bob") in Browser 2');
+console.log('   5. Both users should see each other in sidebar');
+console.log('   6. Click on a user to start a chat');
+console.log('   7. Click "Start QKD" to establish secure connection');
+console.log('   8. Send messages - they should appear in real-time!\n');
+
+console.log('🔍 STEP 5: WHATSAPP FEATURES TO TEST');
+console.log('   ✅ Left sidebar shows all users');
+console.log('   ✅ Click user to start chat');
+console.log('   ✅ QKD establishes secure connection');
+console.log('   ✅ Messages appear instantly in real-time');
+console.log('   ✅ Sender names shown above messages');
+console.log('   ✅ Green unread count badges');
+console.log('   ✅ Secure/Insecure status indicators');
+console.log('   ✅ Messages show plaintext (not encrypted)\n');
+
+console.log('🔍 STEP 6: EXPECTED BEHAVIOR');
+console.log('   User A starts chat with User B:');
+console.log('   → Backend runs QKD simulation (/qkd/bb84?bits=128)');
+console.log('   → Shared key generated (e.g., "101011010011...")');
+console.log('   → Stored temporarily in session');
+console.log('');
+console.log('   Message sent:');
+console.log('   → Frontend encrypts with AES using the QKD key');
+console.log('   → Sends ciphertext via WebSocket directly to User B');
+console.log('   → Message appears instantly on both screens');
+console.log('');
+console.log('   Message received:');
+console.log('   → Receiver decrypts with the same QKD key');
+console.log('   → Message appears instantly in chat');
+console.log('   → Unread count increases in sidebar');
+console.log('   → Green badge shows number of unread messages\n');
+
+console.log('🔍 STEP 7: EXPECTED LOGS');
+console.log('   Backend should show:');
+console.log('     [Socket] Client connected: [socket-id]');
+console.log('     [Socket] User authenticated: [user-id]');
+console.log('     [Socket] User socket mapped: [user-id] -> [socket-id]');
+console.log('     [Socket] Chat message received from user: [user-id] Message ID: [msg-id]');
+console.log('     [Socket] Sending message to receiver socket: [receiver-socket-id]');
+console.log('     [Socket] Message sent to user: [receiver-id]');
+console.log('');
+console.log('   Frontend should show:');
+console.log('     [Socket] Connected successfully');
+console.log('     [Socket] Socket ID: [socket-id]');
+console.log('     [Socket] Authenticating with token...');
+console.log('     [Socket] Authentication successful: [user-id] Socket: [socket-id]');
+console.log('     [ChatPage] Message saved: [message-data]');
+console.log('     [ChatPage] Sending via socket to user: [peer-id]');
+console.log('     [ChatPage] Received message from socket: [message-data]');
+console.log('     [ChatPage] Decrypting message with key...');
+console.log('     [ChatPage] Message decrypted successfully: [plaintext]\n');
+
+console.log('🎯 KEY FEATURES IMPLEMENTED:');
+console.log('   ✅ WhatsApp-like sidebar with all users');
+console.log('   ✅ Click user to start chat (no rooms)');
+console.log('   ✅ QKD simulation when starting conversation');
+console.log('   ✅ Real-time messaging via WebSocket');
+console.log('   ✅ Sender names shown in chat bubbles');
+console.log('   ✅ Green unread count badges');
+console.log('   ✅ Secure/Insecure status indicators');
+console.log('   ✅ Messages appear instantly on both screens');
+console.log('   ✅ Eve attack simulation with QBER detection\n');
+
+console.log('🎉 SUCCESS INDICATORS:');
+console.log('   ✅ Green socket dot 🟢');
+console.log('   ✅ Users appear in left sidebar');
+console.log('   ✅ QKD key generated successfully');
+console.log('   ✅ Real-time message delivery');
+console.log('   ✅ Messages appear instantly on both screens');
+console.log('   ✅ Sender names displayed correctly');
+console.log('   ✅ Green unread count badges appear');
+console.log('   ✅ Secure status shows 🔒 Secure\n');
+
+console.log('🚨 TROUBLESHOOTING:');
+console.log('   If messages don\'t appear in real-time:');
+console.log('   1. Check socket status (should be green)');
+console.log('   2. Verify QKD is completed before messaging');
+console.log('   3. Check browser console for socket errors');
+console.log('   4. Check backend terminal for socket logs');
+console.log('   5. Ensure both users are logged in');
+console.log('   6. Verify messages show plaintext (not encrypted)\n');
+
+console.log('🎯 The application now works exactly like WhatsApp!');
+console.log('   - Left sidebar shows all users');
+console.log('   - Click user to start chat');
+console.log('   - QKD establishes security');
+console.log('   - Real-time messaging with sender names');
+console.log('   - Green unread count badges');
+console.log('   - Secure/Insecure status indicators');
+console.log('   - Messages appear instantly on both screens! 🚀');

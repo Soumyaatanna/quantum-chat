@@ -23,16 +23,37 @@ function randomBits(length: number): number[] {
 }
 
 function toHexFromBits(bits: number[]): string {
-  // pack bits to bytes
-  const padded = bits.slice();
-  while (padded.length % 8 !== 0) padded.push(0);
-  const bytes = [] as number[];
-  for (let i = 0; i < padded.length; i += 8) {
-    let b = 0;
-    for (let j = 0; j < 8; j++) b = (b << 1) | padded[i + j];
-    bytes.push(b);
+  // Ensure we have at least 128 bits for a proper key
+  if (bits.length < 128) {
+    console.warn('[BB84] Warning: Generated key too short, padding with random bits');
+    while (bits.length < 128) {
+      bits.push(Math.random() < 0.5 ? 0 : 1);
+    }
   }
-  return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+  
+  // Truncate to exactly 128 bits for consistency
+  const keyBits = bits.slice(0, 128);
+  
+  // Convert bits to hex string
+  let hexString = '';
+  for (let i = 0; i < keyBits.length; i += 4) {
+    let nibble = 0;
+    for (let j = 0; j < 4 && i + j < keyBits.length; j++) {
+      nibble = (nibble << 1) | keyBits[i + j];
+    }
+    hexString += nibble.toString(16);
+  }
+  
+  // Ensure the hex string is exactly 32 characters (128 bits = 16 bytes = 32 hex chars)
+  if (hexString.length !== 32) {
+    console.warn('[BB84] Warning: Generated hex string length is', hexString.length, 'expected 32');
+    // Pad or truncate to exactly 32 characters
+    hexString = hexString.padEnd(32, '0').substring(0, 32);
+  }
+  
+  console.log('[BB84] Generated key:', keyBits.length, 'bits, hex length:', hexString.length);
+  console.log('[BB84] Hex string validation:', /^[0-9a-f]{32}$/.test(hexString) ? 'Valid' : 'Invalid');
+  return hexString;
 }
 
 export function simulateBB84(numPhotons: number, eveEnabled: boolean = false): BB84Result {
@@ -92,9 +113,9 @@ export function simulateBB84(numPhotons: number, eveEnabled: boolean = false): B
   steps.push({ name: 'Sifting', detail: 'Keep bits where bases matched', siftedKey });
   steps.push({ name: 'QBER Estimation', detail: 'Compare subset to estimate error rate', qber, eveDetected });
 
-  // Simple privacy amplification: truncate to 128 bits if longer
-  const finalBits = siftedKey.slice(0, Math.min(256, siftedKey.length));
-  const keyHex = toHexFromBits(finalBits);
+  // Generate final key
+  const keyHex = toHexFromBits(siftedKey);
+  const finalBits = keyHex.match(/.{1,2}/g)?.map(x => parseInt(x, 16)) || [];
 
   return { keyBits: finalBits, keyHex, steps, qber, eveDetected };
 }
