@@ -5,6 +5,8 @@ export interface Conversation {
   title: string;
   secure: boolean;
   unreadCount: number;
+  lastMessage?: string;
+  lastMessageTime?: string;
 }
 
 export default function Sidebar({ 
