@@ -10,6 +10,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import authRouter from './routes/auth';
 import qkdRouter from './routes/qkd';
 import messageRouter from './routes/messages';
+import roomsRouter from './routes/rooms';
+import usersRouter from './routes/users';
 import { registerSocketHandlers } from './ws/socket';
 
 const app = express();
@@ -21,6 +23,8 @@ app.get('/api/test', (_req, res) => res.json({ message: 'Backend is working!', t
 app.use('/api/auth', authRouter);
 app.use('/api/qkd', qkdRouter);
 app.use('/api/messages', messageRouter);
+app.use('/api/rooms', roomsRouter);
+app.use('/api/users', usersRouter);
 
 const server = http.createServer(app);
 const io = new SocketIOServer(server, { cors: { origin: '*'} });

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import Message from '../models/Message';
 import User from '../models/User';
+import Room from '../models/Room';
 import jwt from 'jsonwebtoken';
 
 const router = Router();
@@ -19,7 +20,8 @@ function authMiddleware(req: any, res: any, next: any) {
   }
 }
 
-router.get('/:peerId', authMiddleware, async (req: any, res) => {
+// Get direct messages between two users
+router.get('/direct/:peerId', authMiddleware, async (req: any, res) => {
   try {
     const { peerId } = req.params;
     const userId = req.userId;
@@ -28,7 +30,7 @@ router.get('/:peerId', authMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: 'peerId is required' });
     }
     
-    console.log('[messages.get] Fetching messages between:', userId, 'and', peerId);
+    console.log('[messages.get] Fetching direct messages between:', userId, 'and', peerId);
     
     const messages = await Message.find({
       $or: [
@@ -48,52 +50,124 @@ router.get('/:peerId', authMiddleware, async (req: any, res) => {
   }
 });
 
+// Get room messages
+router.get('/room/:roomId', authMiddleware, async (req: any, res) => {
+  try {
+    const { roomId } = req.params;
+    const userId = req.userId;
+    
+    if (!roomId) {
+      return res.status(400).json({ error: 'roomId is required' });
+    }
+    
+    // Check if user is member of the room
+    const room = await Room.findOne({
+      _id: roomId,
+      members: userId
+    });
+    
+    if (!room) {
+      return res.status(403).json({ error: 'not_member_of_room' });
+    }
+    
+    console.log('[messages.get] Fetching room messages for room:', roomId);
+    
+    const messages = await Message.find({
+      roomId: roomId
+    })
+    .sort({ createdAt: 1 })
+    .populate('sender', 'username');
+    
+    console.log('[messages.get] Found', messages.length, 'room messages');
+    res.json(messages);
+  } catch (error: any) {
+    console.error('[messages.get] error:', error);
+    res.status(500).json({ error: 'failed_to_fetch_messages', detail: error?.message || String(error) });
+  }
+});
+
 router.post('/', authMiddleware, async (req: any, res) => {
   try {
-    const { receiver, ciphertext, iv, authTag } = req.body || {};
+    const { receiver, roomId, ciphertext, iv, authTag } = req.body || {};
     
     console.log('[messages.post] Creating message:', { 
       sender: req.userId, 
       receiver, 
+      roomId,
       hasCiphertext: !!ciphertext, 
       hasIv: !!iv,
       body: req.body
     });
     
-    if (!receiver || !ciphertext || !iv) {
-      console.log('[messages.post] Validation failed:', { receiver: !!receiver, ciphertext: !!ciphertext, iv: !!iv });
+    if (!ciphertext || !iv) {
+      console.log('[messages.post] Validation failed:', { ciphertext: !!ciphertext, iv: !!iv });
       return res.status(400).json({ 
         error: 'bad_request',
-        detail: 'receiver, ciphertext, and iv are required',
-        received: { receiver: !!receiver, ciphertext: !!ciphertext, iv: !!iv }
+        detail: 'ciphertext and iv are required',
+        received: { ciphertext: !!ciphertext, iv: !!iv }
       });
     }
     
-    // Validate that receiver exists and ids are well-formed
-    if (typeof receiver !== 'string') {
-      return res.status(400).json({ error: 'bad_request', detail: 'receiver must be a string user id' });
+    // Check if it's a direct message or room message
+    if (receiver && !roomId) {
+      // Direct message
+      if (typeof receiver !== 'string') {
+        return res.status(400).json({ error: 'bad_request', detail: 'receiver must be a string user id' });
+      }
+      const receiverUser = await User.findById(receiver);
+      if (!receiverUser) {
+        console.log('[messages.post] Receiver not found:', receiver);
+        return res.status(404).json({ error: 'receiver_not_found', detail: 'Receiver user does not exist' });
+      }
+      
+      const message = await Message.create({ 
+        sender: req.userId, 
+        receiver, 
+        ciphertext, 
+        iv, 
+        authTag 
+      });
+      
+      console.log('[messages.post] Direct message created successfully:', message._id);
+      await message.populate('sender', 'username');
+      await message.populate('receiver', 'username');
+      
+      res.json(message);
+    } else if (roomId && !receiver) {
+      // Room message
+      if (typeof roomId !== 'string') {
+        return res.status(400).json({ error: 'bad_request', detail: 'roomId must be a string' });
+      }
+      
+      // Check if user is member of the room
+      const room = await Room.findOne({
+        _id: roomId,
+        members: req.userId
+      });
+      
+      if (!room) {
+        console.log('[messages.post] User not member of room:', roomId);
+        return res.status(403).json({ error: 'not_member_of_room', detail: 'User is not a member of this room' });
+      }
+      
+      const message = await Message.create({ 
+        sender: req.userId, 
+        roomId, 
+        ciphertext, 
+        iv, 
+        authTag 
+      });
+      
+      console.log('[messages.post] Room message created successfully:', message._id);
+      await message.populate('sender', 'username');
+      
+      res.json(message);
+    } else {
+      return res.status(400).json({ 
+        error: 'bad_request', 
+        detail: 'Either receiver (for direct) or roomId (for room) must be provided, not both' 
+      });
     }
-    const receiverUser = await User.findById(receiver);
-    if (!receiverUser) {
-      console.log('[messages.post] Receiver not found:', receiver);
-      return res.status(404).json({ error: 'receiver_not_found', detail: 'Receiver user does not exist' });
-    }
-    
-    const message = await Message.create({ 
-      sender: req.userId, 
-      receiver, 
-      ciphertext, 
-      iv, 
-      authTag 
-    });
-    
-    console.log('[messages.post] Message created successfully:', message._id);
-    
-    // Populate sender and receiver details for better response
-    await message.populate('sender', 'username');
-    await message.populate('receiver', 'username');
-    
-    res.json(message);
   } catch (error: any) {
     console.error('[messages.post] error:', error);
     // Forward Mongoose validation/cast errors clearly

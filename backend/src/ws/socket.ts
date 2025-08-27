@@ -1,5 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
+import Message from '../models/Message';
+import Room from '../models/Room';
 
 interface ChatPayload { 
   message: any 
@@ -29,6 +31,9 @@ export function registerSocketHandlers(io: Server) {
             console.log('[Socket] User socket mapped:', userId, '->', socket.id);
             socket.emit('authenticated', { userId, socketId: socket.id }); // Send confirmation
           }
+        } else {
+          console.error('[Socket] No token provided');
+          socket.emit('auth_error', { message: 'No token provided' });
         }
       } catch (error) {
         console.error('[Socket] Authentication failed:', error);
@@ -70,61 +75,119 @@ export function registerSocketHandlers(io: Server) {
       io.to(roomId).emit('user_joined_room', { userId, userCount });
     });
 
-    // Handle chat messages
-    socket.on('chat', ({ message }: ChatPayload) => {
+    // Handle direct chat messages
+    socket.on('direct_message', async ({ message }) => {
       try {
-        console.log('[Socket] Chat message received from user:', userId, 'Message ID:', message._id);
+        console.log('[Socket] Direct message received from user:', userId);
         console.log('[Socket] Message details:', {
-          sender: message.sender,
-          receiver: message.receiver,
-          hasCiphertext: !!message.ciphertext,
+          recipient: message.recipient,
+          hasContent: !!message.content,
           hasIv: !!message.iv,
-          timestamp: message.createdAt
+          timestamp: message.timestamp
         });
 
-        if (!message || !message.receiver) {
+        if (!message || !message.recipient) {
           console.error('[Socket] Invalid message format:', message);
           socket.emit('error', { message: 'Invalid message format' });
           return;
         }
 
-        // Extract receiver ID - handle both string and object formats
-        let receiverId: string;
-        if (typeof message.receiver === 'string') {
-          receiverId = message.receiver;
-        } else if (message.receiver && typeof message.receiver === 'object' && message.receiver._id) {
-          receiverId = message.receiver._id;
-        } else {
-          console.error('[Socket] Invalid receiver format:', message.receiver);
-          socket.emit('error', { message: 'Invalid receiver format' });
-          return;
-        }
-
         // Create a unique room ID for the two users
-        const roomId = [userId, receiverId].sort().join('_');
+        const roomId = [userId, message.recipient].sort().join('_');
         
-        console.log('[Socket] Broadcasting message to room:', roomId);
-        console.log('[Socket] Room participants:', Array.from(io.sockets.adapter.rooms.get(roomId) || []));
+        console.log('[Socket] Broadcasting direct message to room:', roomId);
+        
+        // Make sure both users are in the room
+        const recipientSocketId = userSockets.get(message.recipient);
+        if (recipientSocketId) {
+          // Add recipient to the room if not already there
+          io.sockets.sockets.get(recipientSocketId)?.join(roomId);
+        }
+        
+        // Store message in database
+        try {
+          await Message.create({
+            sender: userId,
+            receiver: message.recipient,
+            ciphertext: message.content,
+            iv: message.iv,
+            authTag: message.authTag
+          });
+          console.log('[Socket] Direct message stored in database');
+        } catch (error) {
+          console.error('[Socket] Failed to store direct message:', error);
+        }
         
         // Broadcast to all users in the room (including sender for confirmation)
-        io.to(roomId).emit('chat', { message });
-        console.log('[Socket] Message broadcasted to room:', roomId);
+        io.to(roomId).emit('message', { 
+          sender: userId,
+          content: message.content,
+          iv: message.iv,
+          timestamp: message.timestamp
+        });
         
-        // Send confirmation to sender
-        socket.emit('message_sent', { message });
+        console.log('[Socket] Direct message broadcasted to room:', roomId);
         
-        // Log the broadcast for debugging
-        const room = io.sockets.adapter.rooms.get(roomId);
-        if (room) {
-          console.log('[Socket] Message sent to', room.size, 'clients in room', roomId);
-        } else {
-          console.log('[Socket] Warning: Room', roomId, 'does not exist or is empty');
-        }
       } catch (error) {
-        console.error('[Socket] Error handling chat message:', error);
+        console.error('[Socket] Error handling direct message:', error);
         socket.emit('error', { message: 'Failed to send message' });
       }
     });
+
+    // Handle room chat messages
+    socket.on('room_message', async ({ message }) => {
+      try {
+        console.log('[Socket] Room message received from user:', userId, 'Room ID:', message.roomId);
+        console.log('[Socket] Message details:', {
+          roomId: message.roomId,
+          hasContent: !!message.content,
+          hasIv: !!message.iv,
+          timestamp: message.timestamp
+        });
+
+        if (!message || !message.roomId) {
+          console.error('[Socket] Invalid room message format:', message);
+          socket.emit('error', { message: 'Invalid room message format' });
+          return;
+        }
+
+        console.log('[Socket] Broadcasting room message to room:', message.roomId);
+        
+        // Make sure sender is in the room
+        socket.join(message.roomId);
+        
+        // Store message in database
+        try {
+          await Message.create({
+            sender: userId,
+            roomId: message.roomId,
+            ciphertext: message.content,
+            iv: message.iv,
+            authTag: message.authTag
+          });
+          console.log('[Socket] Room message stored in database');
+        } catch (error) {
+          console.error('[Socket] Failed to store room message:', error);
+        }
+        
+        // Broadcast to all users in the room
+        io.to(message.roomId).emit('message', { 
+          sender: userId,
+          content: message.content,
+          iv: message.iv,
+          timestamp: message.timestamp,
+          roomId: message.roomId
+        });
+        
+        console.log('[Socket] Room message broadcasted to room:', message.roomId);
+        
+      } catch (error) {
+        console.error('[Socket] Error handling room message:', error);
+        socket.emit('error', { message: 'Failed to send room message' });
+      }
+    });
+
+
 
     // Handle key sharing between users
     socket.on('share_key', ({ peerId, keyHex, qber, eveDetected }) => {
@@ -158,6 +221,33 @@ export function registerSocketHandlers(io: Server) {
       } catch (error) {
         console.error('[Socket] Error handling key sharing:', error);
         socket.emit('error', { message: 'Failed to share key' });
+      }
+    });
+
+    // Handle room key sharing
+    socket.on('share_room_key', ({ roomId, keyHex, qber, eveDetected }) => {
+      try {
+        console.log('[Socket] Room key sharing request from user:', userId, 'for room:', roomId);
+        
+        if (!roomId || !keyHex) {
+          console.error('[Socket] Invalid room key sharing format:', { roomId, hasKeyHex: !!keyHex });
+          socket.emit('error', { message: 'Invalid room key sharing format' });
+          return;
+        }
+
+        // Send the key to all users in the room
+        io.to(roomId).emit('key_shared', {
+          roomId,
+          keyHex,
+          qber,
+          eveDetected
+        });
+        
+        console.log('[Socket] Room key shared successfully with room:', roomId);
+        
+      } catch (error) {
+        console.error('[Socket] Error handling room key sharing:', error);
+        socket.emit('error', { message: 'Failed to share room key' });
       }
     });
 

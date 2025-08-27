@@ -23,9 +23,9 @@ export default function RegisterPage() {
       localStorage.setItem('username', res.data.user.username);
       localStorage.setItem('userId', res.data.user.id);
       
-      console.log('[Register] Stored in localStorage, navigating to /chat');
+      console.log('[Register] Stored in localStorage, navigating to /dashboard');
       // Force a page reload to ensure App component picks up the new token
-      window.location.href = '/chat';
+      window.location.href = '/dashboard';
     } catch (err: any) {
       console.error('[Register] Error:', err);
       const status = err?.response?.status;
