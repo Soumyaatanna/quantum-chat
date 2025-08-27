@@ -36,7 +36,7 @@ export default function DirectMessaging() {
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    const s = io('http://localhost:4000', { transports: ['websocket'] });
+    const s = io('https://quantum-chat-uoq8.onrender.com', { transports: ['websocket'] });
     s.on('connect', () => {
       setConnected(true);
       s.emit('authenticate', { token });

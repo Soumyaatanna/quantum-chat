@@ -6,7 +6,7 @@ import Sidebar, { Conversation } from '../components/Sidebar';
 import ChatHeader from '../components/ChatHeader';
 import MessageBubble from '../components/MessageBubble';
 
-const wsBase = 'http://localhost:4000';
+const wsBase = 'https://quantum-chat-uoq8.onrender.com';
 
 // Add key validation function
 function validateQKDKey(hex: string): boolean {
